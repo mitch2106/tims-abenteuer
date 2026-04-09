@@ -970,20 +970,45 @@ const speech = {
 };
 
 // ===== TTS =====
+let bestVoice = null;
+
+function findBestVoice() {
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return;
+  const deVoices = voices.filter(v => v.lang.startsWith('de'));
+  if (!deVoices.length) return;
+  const ranked = deVoices.map(v => {
+    let score = 0;
+    const name = v.name.toLowerCase();
+    if (name.includes('premium') || name.includes('neural') || name.includes('enhanced')) score += 50;
+    if (name.includes('google')) score += 30;
+    if (name.includes('samantha') || name.includes('anna') || name.includes('petra') || name.includes('vicki')) score += 25;
+    if (name.includes('female') || name.includes('frau')) score += 15;
+    if (name.includes('compact')) score -= 20;
+    if (!v.localService) score -= 5;
+    return { voice: v, score };
+  }).sort((a, b) => b.score - a.score);
+  bestVoice = ranked[0].voice;
+}
+
 function say(t) {
   if (!S.sound || !t) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(t);
-  u.lang = 'de-DE'; u.rate = 0.85; u.pitch = 1.1;
-  const v = speechSynthesis.getVoices().find(v => v.lang.startsWith('de'));
-  if (v) u.voice = v;
+  u.lang = 'de-DE';
+  u.rate = 0.82;
+  u.pitch = 1.15;
+  u.volume = 0.9;
+  if (bestVoice) u.voice = bestVoice;
   const ind = document.getElementById('speakInd');
   u.onstart = () => ind.classList.add('active');
   u.onend = () => ind.classList.remove('active');
   u.onerror = () => ind.classList.remove('active');
   speechSynthesis.speak(u);
 }
-speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+
+speechSynthesis.onvoiceschanged = findBestVoice;
+findBestVoice();
 
 // ===== NAVIGATION =====
 function goTo(id) {
@@ -1232,20 +1257,43 @@ function confetti() {
 // ===== SOUND FX =====
 let actx = null;
 function ac() { if (!actx) actx = new (AudioContext || webkitAudioContext)(); return actx; }
+
+function plop(freq, delay=0) {
+  const c = ac(), n = c.currentTime + delay;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, n);
+  g.gain.linearRampToValueAtTime(0.07, n + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, n + 0.25);
+  o.connect(g); g.connect(c.destination);
+  o.start(n); o.stop(n + 0.25);
+}
+
 function sfx(t) {
   if (!S.sound) return;
   try {
-    const c = ac(), o = c.createOscillator(), g = c.createGain();
-    o.connect(g); g.connect(c.destination); g.gain.value = 0.1;
-    const n = c.currentTime;
     switch(t) {
-      case 'click': o.frequency.value=600; g.gain.exponentialRampToValueAtTime(0.001,n+0.1); o.start(n); o.stop(n+0.1); break;
-      case 'select': o.frequency.value=440; o.frequency.linearRampToValueAtTime(880,n+0.15); g.gain.exponentialRampToValueAtTime(0.001,n+0.2); o.start(n); o.stop(n+0.2); break;
-      case 'confirm': o.type='triangle'; o.frequency.value=400; o.frequency.linearRampToValueAtTime(900,n+0.25); g.gain.exponentialRampToValueAtTime(0.001,n+0.3); o.start(n); o.stop(n+0.3); break;
-      case 'catch': o.frequency.value=800; o.frequency.linearRampToValueAtTime(1200,n+0.1); g.gain.exponentialRampToValueAtTime(0.001,n+0.15); o.start(n); o.stop(n+0.15); break;
-      case 'victory': o.type='triangle'; g.gain.value=0.08; o.frequency.setValueAtTime(523,n); o.frequency.setValueAtTime(659,n+0.12); o.frequency.setValueAtTime(784,n+0.24); o.frequency.setValueAtTime(1047,n+0.36); g.gain.exponentialRampToValueAtTime(0.001,n+0.6); o.start(n); o.stop(n+0.6); break;
-      case 'crystal': o.type='sine'; o.frequency.value=600+Math.random()*500; g.gain.exponentialRampToValueAtTime(0.001,n+0.3); o.start(n); o.stop(n+0.3); break;
-      case 'wrong': o.type='sawtooth'; g.gain.value=0.05; o.frequency.value=200; o.frequency.linearRampToValueAtTime(100,n+0.25); g.gain.exponentialRampToValueAtTime(0.001,n+0.25); o.start(n); o.stop(n+0.25); break;
+      case 'click': plop(784); break;
+      case 'select': plop(523, 0); plop(784, 0.1); break;
+      case 'confirm': plop(523, 0); plop(659, 0.1); plop(1047, 0.2); break;
+      case 'catch': plop(659, 0); plop(988, 0.08); break;
+      case 'victory': { [523,659,784,1047,1319].forEach((f,i) => plop(f, i*0.12)); break; }
+      case 'crystal': {
+        const f = 700 + Math.random()*400;
+        const c = ac(), n = c.currentTime;
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0, n);
+        g.gain.linearRampToValueAtTime(0.06, n + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, n + 0.5);
+        const lfo = c.createOscillator(), lfoG = c.createGain();
+        lfo.frequency.value = 5; lfoG.gain.value = 3;
+        lfo.connect(lfoG); lfoG.connect(o.frequency);
+        o.connect(g); g.connect(c.destination);
+        o.start(n); lfo.start(n); o.stop(n + 0.5); lfo.stop(n + 0.5);
+        break;
+      }
+      case 'wrong': plop(440, 0); plop(349, 0.12); break;
     }
   } catch(e) {}
 }
